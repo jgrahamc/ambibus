@@ -228,9 +228,13 @@ walk = tonumber(arg[3])
 update = 1
 
 -- This determines how often to ask the TfL API for new information.  If this
--- is greater than update then the program will interpolate between the 
+-- is greater than update then the program will interpolate between the times
+-- it did an update.  The second variable is used to update more frequently
+-- if no bus times have been found.  This is can be helpful when no buses
+-- come for a while
 
 retrieve = 5
+retrieve_no_info = 1
 
 -- This is the serial device that the LED display is connected to, we
 -- force it to 9600 baud 8n1 here using the stty program (which must be
@@ -276,12 +280,16 @@ while (1) do
    -- inside the update window specified by start and finish.  If not
    -- then shut off the display
 
+   sleep_for = "5s"
+
    current = tonumber(os.date("%H%M"))
    
    if ( ( current >= start ) and ( current <= finish ) ) then
       now = os.time()
       
-      if ( now >= ( last_retrieve + retrieve * 60 ) ) then
+      if ( now >= ( last_retrieve + retrieve * 60 ) or
+	   ( ( #times == 0 ) and
+	     ( now >= ( last_retrieve + retrieve_no_info * 60 ) ) ) ) then
 	 times = retrieve_buses()
 	 last_retrieve = now
       end	
@@ -291,10 +299,13 @@ while (1) do
 	 last_update = now
       end
    else
+      sleep_for = "5m"
+ 
       display_blank() 
    end
 
-   -- Wait for 5 seconds before checking again
+   -- Wait before checking again.  The wait time depends on whether
+   -- the system is active or sleeping (out of hours)
 
-   os.execute("sleep 5s")
+   os.execute("sleep " .. sleep_for)
 end
