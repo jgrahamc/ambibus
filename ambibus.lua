@@ -44,6 +44,16 @@ function display_quad(q)
         fail("display_quad called with wrong length string")
     end
 
+    -- The following is a bit of a hack but it improves readability
+    -- of the display.  If we want to display x123 it's better to display
+    -- 1x23.  If the second number has two digits and the first number has
+    -- one then flip the first two to leave a space between.
+
+    if ( ( q:sub(3,3) ~= " " ) and ( q:sub(1,1) == " " ) ) then
+       tq = q:sub(2,2) .. " " .. q:sub(3,4)
+       q = tq
+    end
+
     display_send("\118")
 
     -- Because the display is mounted upside down in the bus it is
@@ -283,8 +293,8 @@ while (1) do
    else
       display_blank() 
    end
-   
-   wait = os.time()
-   while (os.time() < (wait+5)) do
-   end
+
+   -- Wait for 5 seconds before checking again
+
+   os.execute("sleep 5s")
 end

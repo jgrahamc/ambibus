@@ -1,0 +1,12 @@
+#!/bin/sh /etc/rc.common
+
+START=50
+
+# Change ROUTE to the comma-separated list of bus routes
+# Change STOP to the five digit stop number
+# Change WALKING to the time to walk to stop
+
+start() {        
+    echo start
+    lua /root/ambibus.lua ROUTE STOP WALKING &
+}        
