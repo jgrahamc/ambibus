@@ -2,3 +2,5 @@ Ambient Bus Arrival Monitor
 
 Uses the TfL API to find the time of buses passes a bus stop and display
 on a special LED monitor built into a model bus.
+
+See: http://blog.jgc.org/2012/03/ambient-bus-arrival-monitor-from-hacked.html
