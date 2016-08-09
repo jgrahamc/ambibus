@@ -5,21 +5,34 @@
 -- a SparkFun Serial LED display connected to the serial port.
 --
 -- This program retrieves bus arrival time from Transport for London for
--- specific bus routes and a single bus stop and displays up to two 
+-- specific bus routes and a single bus stop and displays up to two
 -- arrival times on the display for the buses arriving next.
 --
--- Copyright (c) 2012 John Graham-Cumming
+-- Copyright (c) 2012-2016 John Graham-Cumming
 --
 -- See file LICENSE for license information
+
+JSON = assert(loadfile "JSON.lua")()
+
+-- These must be set to the AppId and AppKey from the TfL web site
+-- https://api.tfl.gov.uk/ (register to obtain them)
+
+local APP_ID = ""
+local APP_KEY = ""
 
 -- display_send: write a string of characters directly to the display via
 -- the serial port
 function display_send(d)
-    out = io.open(serial, "wb")
+    if debug then
+       print(d)
+       return
+    end
+
+    local out = io.open(serial, "wb")
 
     if ( out ~= nil ) then
         out:write(d)
-    	out:close()
+        out:close()
     end
 end
 
@@ -39,9 +52,13 @@ end
 
 -- display_quad: send 4 characters to the display starting with the left
 -- most digit.
-function display_quad(q) 
+function display_quad(q)
     if ( #q ~= 4 ) then
         fail("display_quad called with wrong length string")
+    end
+
+    if debug then
+        print("display_quad: " .. q)
     end
 
     -- The following is a bit of a hack but it improves readability
@@ -61,26 +78,26 @@ function display_quad(q)
     -- in the reverse order
     --
     -- Unfortunately there isn't a useful character to map 1 to so
-    -- it is mapped to a blank here and then we keep track of the 
+    -- it is mapped to a blank here and then we keep track of the
     -- positions that need a 1 and manually set the correct LEDs
 
-    ones = {}
+    local ones = {}
 
-    xlat = { ["0"] = "0", ["1"] = "x", ["2"] = "2", ["3"] = "E", ["4"] = "h",
-	     ["5"] = "5", ["6"] = "9", ["7"] = "L", ["8"] = "8", ["9"] = "6" }
+    local xlat = { ["0"] = "0", ["1"] = "x", ["2"] = "2", ["3"] = "E", ["4"] = "h",
+                   ["5"] = "5", ["6"] = "9", ["7"] = "L", ["8"] = "8", ["9"] = "6" }
 
-    nq = ""
+    local nq = ""
 
     for i = 1, #q do
        local c = q:sub(i,i)
-       x = xlat[c]
+       local x = xlat[c]
        if ( x ~= nil ) then
-	  nq = x .. nq
-	  if ( x == "x" ) then
-	     table.insert(ones, i)
-	  end
+          nq = x .. nq
+          if ( x == "x" ) then
+              table.insert(ones, i)
+          end
        else
-	  nq = c .. nq
+          nq = c .. nq
        end
     end
 
@@ -103,8 +120,8 @@ function display_blank()
 end
 
 -- split: break a string into a table of words separated by commas
-function split(s,p) 
-    words = {}
+function split(s)
+    local words = {}
     for word in s:gmatch("[^,]+") do
         table.insert(words, word)
     end
@@ -120,45 +137,48 @@ function fail(m)
 end
 
 -- usage: terminate the program showing usage information
-function usage() 
+function usage()
     fail("Usage: ambibus.lua <routes> <stop> <walktime>")
 end
 
 -- retrieve_buses: get the latest bus times from the TfL API and fill
 -- in the times table
 function retrieve_buses()
-   ms = os.time() * 1000 
-   url = string.format("http://countdown.tfl.gov.uk/stopBoard/%d/?_dc=%s", stop, ms)
-   c = io.popen(string.format("wget -O - -q %s", url), "r")
-   buses = c:read("*a")
+   local url = string.format("https://api.tfl.gov.uk/StopPoint/%s/arrivals?app_id=%s&app_key=%s", stop, APP_ID, APP_KEY)
+   local wget = string.format("wget -O - -q '%s'", url)
+   if debug then
+      print(wget)
+   end
+
+   local c = io.popen(wget, "r")
+   local json = c:read("*a")
    c:close()
 
-   -- This is really ugly.  Parsing JSON using regexps is brittle and bad, but
-   -- none of the Lua JSON parsers seem good.  Happy to be educated about one
-   -- that can be used with lua on the OpenWRT
-   --
-   -- Extra pairs of (bus number, wait time) and look for buses in the routes
-   -- table
+   if debug then
+      print(json)
+   end
 
    local temp = {}
 
-   for b, t in string.gmatch(buses, "\"routeId\":\"[^\"]+\",\"routeName\":\"([^\"]+)\",\"destination\":\"[^\"]+\",\"estimatedWait\":\"([^\"]+)\"") do
-      for i, a in pairs(routes) do
-	 if ( a == b ) then
-	    if ( t == "due" ) then
-	       t = "0 min"
-	    end
+   local buses = JSON:decode(json)
 
-	    minutes = string.match(t, "(%d+) min")
-	    if ( minutes ~= nil ) then
-	       minutes = tonumber(minutes)
-	       minutes = minutes - walk
+   for i, bus in ipairs(buses) do
+      local lineName = bus["lineName"]
+      for i, l in pairs(routes) do
+         if ( l == lineName ) then
+            local tts = bus["timeToStation"]
+            local minutes = math.floor(tts / 60)
+            minutes = minutes - walk
 
-	       if ( minutes >= 0 ) then
-		  table.insert(temp, minutes)
-	       end
-	    end
-	 end
+            if ( minutes >= 0 ) then
+               table.insert(temp, minutes)
+               if debug then
+                  print(lineName, " in ", minutes)
+               end
+            end
+
+            break
+         end
       end
    end
 
@@ -171,7 +191,7 @@ function retrieve_buses()
 end
 
 -- update_display: show the two earliest buses on the display.  This will
--- take into account the time elapsed since the last_retrieve so that 
+-- take into account the time elapsed since the last_retrieve so that
 
 function update_display(t)
    delta = math.floor((os.time() - last_retrieve) / 60)
@@ -179,7 +199,7 @@ function update_display(t)
    local temp = {}
    for i, b in pairs(t) do
       if ( (b - delta) >= 0 ) then
-	 table.insert(temp, b-delta)
+         table.insert(temp, b-delta)
       end
    end
 
@@ -198,7 +218,7 @@ function update_display(t)
 end
 
 -- The first argument on the command-line should be a list of bus routes
--- to be examined separeted by commas.  e.g. 11 or 11,411
+-- to be examined separated by commas.  e.g. 11 or 11,411
 
 if ( arg[1] == nil ) then
    usage()
@@ -206,7 +226,10 @@ end
 routes = split(arg[1])
 
 -- The second argument is the bus stop number which must be obtained from
--- TfL
+-- TfL. The easiest way to do this is to find the appropriate bus stop
+-- on the TfL web site and copy/paste the ID from the URI. For example,
+-- https://tfl.gov.uk/bus/stop/490007865E/westminster-registration-office/
+-- is a bus stop and the ID is 490007865E.
 
 if ( arg[2] == nil ) then
    usage()
@@ -222,19 +245,25 @@ if ( arg[3] == nil ) then
 end
 walk = tonumber(arg[3])
 
--- This determines the update time (in minutes) of the display.  The display
--- will be updated every time that interval has expired.  
+-- Optional fourth argument causes output to console instead of serial port
 
-update = 1
+debug = ( arg[4] ~= nil)
 
--- This determines how often to ask the TfL API for new information.  If this
--- is greater than update then the program will interpolate between the times
--- it did an update.  The second variable is used to update more frequently
--- if no bus times have been found.  This is can be helpful when no buses
--- come for a while
+-- This determines the update time (in seconds) of the display.  The display
+-- will be updated every time that interval has expired.
 
-retrieve = 5
-retrieve_no_info = 1
+update = 30
+
+-- This determines how often to ask the TfL API for new information.
+-- If this is greater than update then the program will interpolate
+-- between the times it did an update.  The second variable is used to
+-- update more frequently if no bus times have been found.  This is
+-- can be helpful when no buses come for a while.  This must not be
+-- less than 10 seconds as the TfL API used cannot be called more than
+-- once every 10 seconds.
+
+retrieve = 30
+retrieve_no_info = 10
 
 -- This is the serial device that the LED display is connected to, we
 -- force it to 9600 baud 8n1 here using the stty program (which must be
@@ -244,10 +273,12 @@ retrieve_no_info = 1
 -- -cstopb sets 1 stop bit
 -- ospeed sets the output baud rate
 
-serial = "/dev/ttyS1"
-rc = os.execute(string.format("stty -F %s ospeed 9600 -parenb cs8 -cstopb", serial))
-if ( rc ~= 0 ) then
-   fail("Can't run STTY to set up serial port") 
+if not debug then
+   serial = "/dev/ttyS1"
+   rc = os.execute(string.format("stty -F %s ospeed 9600 -parenb cs8 -cstopb", serial))
+   if ( rc ~= 0 ) then
+      fail("Can't run STTY to set up serial port")
+   end
 end
 
 -- These two variables store the time of the last update of the display and
@@ -261,7 +292,7 @@ last_retrieve = 0
 -- is enabled and the API accessed.  Both are an hour/minute in 24h
 -- format
 
-start = 800
+start = 0700
 finish = 2000
 
 -- Used to determine whether we have valid bus data and store the
@@ -283,25 +314,25 @@ while (1) do
    sleep_for = "5s"
 
    current = tonumber(os.date("%H%M"))
-   
+
    if ( ( current >= start ) and ( current <= finish ) ) then
       now = os.time()
-      
-      if ( now >= ( last_retrieve + retrieve * 60 ) or
-	   ( ( #times == 0 ) and
-	     ( now >= ( last_retrieve + retrieve_no_info * 60 ) ) ) ) then
-	 times = retrieve_buses()
-	 last_retrieve = now
-      end	
-      
-      if ( now >= ( last_update + update * 60 ) ) then
-	 update_display(times)
-	 last_update = now
+
+      if ( now >= ( last_retrieve + retrieve ) or
+       ( ( #times == 0 ) and
+         ( now >= ( last_retrieve + retrieve_no_info ) ) ) ) then
+         times = retrieve_buses()
+         last_retrieve = now
+      end
+
+      if ( now >= ( last_update + update ) ) then
+         update_display(times)
+         last_update = now
       end
    else
       sleep_for = "5m"
- 
-      display_blank() 
+
+      display_blank()
    end
 
    -- Wait before checking again.  The wait time depends on whether
