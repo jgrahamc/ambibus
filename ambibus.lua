@@ -12,13 +12,15 @@
 --
 -- See file LICENSE for license information
 
+-- This used the pure Lua JSON decoder from http://regex.info/blog/lua/json
+
 JSON = assert(loadfile "JSON.lua")()
 
 -- These must be set to the AppId and AppKey from the TfL web site
 -- https://api.tfl.gov.uk/ (register to obtain them)
 
-local APP_ID = ""
-local APP_KEY = ""
+local APP_ID = os.getenv("TFL_APP_ID") 
+local APP_KEY = os.getenv("TFL_APP_KEY")
 
 -- display_send: write a string of characters directly to the display via
 -- the serial port
